@@ -8,8 +8,11 @@ import json
 import logging
 import paho.mqtt.client as mqtt
 
+
 from bme280 import BME280                           # Temperature sensor
 from pms5003 import PMS5003, ReadTimeoutError       # Particulate Matter sensor
+from ltr559 import LTR559                           # Light Sensor
+
 from subprocess import PIPE, Popen, check_output
 from logging.handlers import TimedRotatingFileHandler
 
@@ -96,13 +99,14 @@ def get_mqtt_id():
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 bus = SMBus(1)
 
-# Create BME280 instance
+# Create BME280 instance: Temperature Sensor
 bme280 = BME280(i2c_dev=bus)
 
-# Create PMS5003 instance
+# Create PMS5003 instance: Particulate Sensor
 pms5003 = PMS5003()
 
-
+# Create LTR559 instance: Light Sensor
+ltr559 = LTR559()
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++ Read values from BME280 and PMS5003 and 
@@ -116,6 +120,8 @@ def read_values():
     values["temperature"] = "{:.2f}".format(comp_temp)
     values["pressure"] = "{:.2f}".format(bme280.get_pressure() * 100)
     values["humidity"] = "{:.2f}".format(bme280.get_humidity())
+    values["lux"] = "{:05.02f}".format(ltr559.get_lux())
+    
     try:
         pm_values = pms5003.read()
         values["P2"] = str(pm_values.pm_ug_per_m3(2.5))
