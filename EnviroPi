@@ -5,17 +5,23 @@ import ST7735
 import time
 import platform
 import json
+import logging
 import paho.mqtt.client as mqtt
 
 from bme280 import BME280                           # Temperature sensor
 from pms5003 import PMS5003, ReadTimeoutError       # Particulate Matter sensor
 from subprocess import PIPE, Popen, check_output
+from logging.handlers import TimedRotatingFileHandler
 
 try:
     from smbus2 import SMBus
 except ImportError:
     from smbus import SMBus
 
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# ++ MQTT Variables
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 MQTT_Broker_IP="192.168.178.21"
 MQTT_Broker_Port=4883
 Keep_Alive_Interval=60
@@ -25,10 +31,46 @@ Sensor_Interval=300    #Take a reading once every 5 minutes (300 seconds)
 
 DateTimeFmt = "%Y-%m-%d %H:%M:%S"
 
-print("""EnviroPi - Read Temperature, Pressure, Humidity, PM2.5 & PM10 from
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# ++ Logging Variables
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Log_Name = "EnviroPiSensor.Log"
+Log_Path = ""                      # Log Path location
+Log_When = "h"                     # Log When to Roll over
+Log_Interval = 1                   # Log Interval
+Log_BackUpCount = 24                # Log - how many files to keep
+Log_Formatter = '%(levelname)s:%(asctime)s:%(message)s'
+Log_Level = logging.INFO
+
+
+
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+# ++ Create Logger instance
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+def create_log():
+    
+    logger = logging.getLogger("EnviroPiLog")
+    logger.setLevel(Log_Level)
+    
+    handler = TimedRotatingFileHandler(Log_Name,
+                                       when = Log_When,
+                                       interval = Log_Interval,
+                                       backupCount = Log_BackUpCount)
+    
+    logFormatter = logging.Formatter(Log_Formatter)
+
+    handler.setFormatter(logFormatter)
+    
+    logger.addHandler(handler)
+    
+    return logger
+
+
+AppLog = create_log()
+
+AppLog.info("""EnviroPi - Read Temperature, Pressure, Humidity, PM2.5 & PM10 from
 EnviroPlus and send the data to LuftDaten - the citizen science air quality
 project.""")
-
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++ Get Raspberry Pi serial number to use as ID
@@ -46,7 +88,7 @@ def get_uname():
 
 def get_mqtt_id():
     Id = get_uname() + "-" + get_serial_number()
-    print(Id)
+    AppLog.info("Id:" + Id)
     return Id
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -92,15 +134,6 @@ def get_cpu_temperature():
     process = Popen(['vcgencmd', 'measure_temp'], stdout=PIPE, universal_newlines=True)
     output, _error = process.communicate()
     return float(output[output.index('=') + 1:output.rindex("'")])
-
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
-# ++ Get Raspberry Pi serial number to use as ID
-# ++++++++++++++++++++++++++++++++++++++++++++++++++++++
-def get_serial_number():
-    with open('/proc/cpuinfo', 'r') as f:
-        for line in f:
-            if line[0:6] == 'Serial':
-                return line.split(":")[1].strip()
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++ What time is it?
@@ -168,10 +201,14 @@ def send_to_luftdaten(values, id):
             "cache-control": "no-cache"
         }
     )
+    
+    AppLog.debug("Send to LuftDaten Response 1: " + resp_1.text + " Response 2: " + resp_2.text)
 
     if resp_1.ok and resp_2.ok:
+        AppLog.info("Send to LuftDaten: Response Ok")
         return True
     else:
+        AppLog.warning("Send to LuftDaten: Response Failed")
         return False
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -190,18 +227,18 @@ Luft_id = "raspi-" + get_serial_number()
 # ++ MQTT Call back functions:
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 def on_message(client, userdata, message):
-    print("message topic=" + message.topic)
-    print("message received " + str(message.payload.decode("utf-8")))
-    print("message qos=" + str(message.qos))
-    print("message retain flag=" + str(message.retain))
+    AppLog.info("MQTT Topic=" + message.topic)
+    AppLog.info("MQTT Received " + str(message.payload.decode("utf-8")))
+    AppLog.info("MQTT QoS=" + str(message.qos))
+    AppLog.info("MQTT Retain Flag=" + str(message.retain))
 
 def on_disconnect(client, userdata, rc):
     if rc != 0:
-        print("Unexpected disconnection.")
-    print("Disconnected")
+        AppLog.warning("Unexpected disconnection.")
+    AppLog.info("Disconnected")
 
 def on_log(client, userdata, level, buf):
-    print("log: " + buf)
+    AppLog.info("MQTT Log: " + str(buf))
 
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -209,18 +246,26 @@ def on_log(client, userdata, level, buf):
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 def init_MQTT():
 
+    AppLog.info("Initialising MQTT Client")
+    
     MQTT_client = mqtt.Client(Client_Id)        # New MQTT Client Object
 
+    AppLog.debug("Initialising MQTT Connection")
     MQTT_client.connect(MQTT_Broker_IP, port = MQTT_Broker_Port)  # Connect to Broker / Server
 
+    AppLog.debug("Initialising MQTT Call backs...")
     MQTT_client.on_message = on_message              # Init on_message call back
     MQTT_client.on_disconnect = on_disconnect        # Init on_disconnect call back
 
+    AppLog.debug("Initialising MQTT Loop start...")
     MQTT_client.loop_start()
 
+    AppLog.debug("MQTT Subscribing to Topic" + MQTT_Topic)
     MQTT_client.subscribe(MQTT_Topic)
 
     MQTT_client.on_log=on_log
+    
+    AppLog.info("MQTT Client Initialised")
 
     return MQTT_client
 
@@ -229,14 +274,15 @@ def init_MQTT():
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 # ++ Add a pause after boot
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
-print("Sleeping.....")
+AppLog.info("Sleeping.....")
 time.sleep(30)
-print("LuftDaten....")
+AppLog.info("LuftDaten starting....")
 
 
 Client_Id = get_mqtt_id()
 
 MQ_Client = init_MQTT()
+
 
 time_since_update = 0
 update_time = time.time()
@@ -253,7 +299,7 @@ while True:
             resp = send_data(values, Luft_id, MQ_Client)
 
             update_time = time.time()
-            print("Response: {}\n".format("ok" if resp else "failed"))
+            #AppLog.info("Response: {}\n".format("ok" if resp else "failed"))
 
     except Exception as e:
         print(e)
