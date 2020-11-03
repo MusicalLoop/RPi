@@ -36,7 +36,7 @@ DateTimeFmt = "%Y-%m-%d %H:%M:%S"
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 Log_Name = "EnviroPiSensor.Log"
 Log_Path = ""                      # Log Path location
-Log_When = "h"                     # Log When to Roll over
+Log_When = "d"                     # Log When to Roll over
 Log_Interval = 1                   # Log Interval
 Log_BackUpCount = 24                # Log - how many files to keep
 Log_Formatter = '%(levelname)s:%(asctime)s:%(message)s'
@@ -160,7 +160,15 @@ def send_data(values, Luft_id, MQ_Client):
 # ++ Send Data - LuftDaten
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
 def send_to_MQTT(values, MQ_Client):
-    MQ_Client.publish(MQTT_Topic, get_time() + " " + str(values), qos = MQTT_QoS)
+    AppLog.info("Sending to MQTT")
+    MQ_Values = values.copy()
+    
+    AppLog.debug("Adding DateTime...")
+    
+    MQ_Values['DateTime'] = time.strftime(DateTimeFmt, time.localtime())
+    
+    MQ_Client.publish(MQTT_Topic, str(MQ_Values), qos = MQTT_QoS)
+    AppLog.info("Sent to MQTT Complete")
 
 
 # ++++++++++++++++++++++++++++++++++++++++++++++++++++++
